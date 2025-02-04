@@ -21,6 +21,7 @@ return new class extends Migration
             $table->text('about_me')->nullable();
             $table->string('sms_code')->nullable();
             $table->boolean('is_active')->default(false);
+            $table->rememberToken();
             $table->timestamps();
         });
     }
