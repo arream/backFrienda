@@ -2,33 +2,28 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UserConfirmRequest;
+use App\Http\Requests\UserLoginRequest;
+use App\Http\Requests\UserRegistrationRequest;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use GuzzleHttp\Client;
+use Laravel\Sanctum\HasApiTokens;
 
 class AuthController extends Controller
 {
+    use HasApiTokens;
     private $smsApiKey = '5F0473CB-2FFD-5946-44E3-864B3A202FC0';
 
-    public function register(Request $request)
+    public function register(UserRegistrationRequest $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'surname' => 'required|string|max:255',
-            'phone' => 'required|string|unique:users,phone',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 400);
-        }
-
         $smsCode = rand(1000, 9999);
         $this->sendSms($request->phone, "Ваш код подтверждения: $smsCode");
 
-        $user = User::create([
+        User::create([
             'name' => $request->name,
             'surname' => $request->surname,
             'phone' => $request->phone,
@@ -37,7 +32,7 @@ class AuthController extends Controller
         return response()->json(['message' => 'SMS-код отправлен на ваш номер.'], 200);
     }
 
-    private function sendSms($phone, $message)
+    private function sendSms($phone, $message): void
     {
         $ch = curl_init("https://sms.ru/sms/send");
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
@@ -73,17 +68,9 @@ class AuthController extends Controller
         }
     }
 
-    public function confirm(Request $request)
+    public function confirm(UserConfirmRequest $request): JsonResponse
     {
-        $validator = Validator::make($request->all(), [
-            'phone' => 'required|string',
-            'code' => 'required|integer|digits:4',
-        ]);
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 400);
-        }
-        // Получаем номер телефона из запроса
         $phone = $request->phone;
         $user = User::where('phone', $phone)->first();
 
@@ -93,19 +80,17 @@ class AuthController extends Controller
 
         $user->is_active = true;
         $user->sms_code = null;
+        $user->tokens()->delete();
         $user->save();
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json(['message' => 'Номер телефона подтвержден.', 'token' => $token], 200);
+        return response()->json([
+            'message' => 'Номер телефона подтвержден.',
+            'token' => $user->createToken('auth_token')->plainTextToken],
+            200);
     }
-    public function login(Request $request)
+    public function login(UserLoginRequest $request): JsonResponse
     {
-        $validated = $request->validate([
-            'phone' => 'required|string',
-        ]);
-
-        $user = User::where('phone', $validated['phone'])->first();
+        $user = User::where('phone', $request->get('phone'))->first();
 
         if (!$user) {
             return response()->json(['message' => 'Пользователь не найден.'], 404);
